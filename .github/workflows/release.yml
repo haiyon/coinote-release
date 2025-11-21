@@ -133,7 +133,54 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
       - name: Install frontend dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Build Claw service
+        shell: bash
+        working-directory: claw
+        env:
+          GOPROXY: https://goproxy.cn,direct
+          GOTOOLCHAIN: local
+        run: |
+          # Determine target architecture
+          if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
+            if [[ "${{ matrix.rust-target }}" == "aarch64-apple-darwin" ]]; then
+              GOARCH=arm64
+              BINARY_NAME="claw-aarch64-apple-darwin"
+            else
+              GOARCH=amd64
+              BINARY_NAME="claw-x86_64-apple-darwin"
+            fi
+            GOOS=darwin
+          elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
+            GOOS=windows
+            GOARCH=amd64
+            BINARY_NAME="claw-x86_64-pc-windows-msvc.exe"
+          else
+            GOOS=linux
+            GOARCH=amd64
+            BINARY_NAME="claw-x86_64-unknown-linux-gnu"
+          fi
+
+          echo "Building Claw for $GOOS/$GOARCH -> $BINARY_NAME"
+
+          # Build Claw
+          CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
+            -trimpath \
+            -ldflags "-s -w -buildid=" \
+            -o "claw" \
+            ./cmd/server
+
+          # Create binaries directory and copy with correct naming
+          mkdir -p ../tauri/binaries
+          if [[ "$GOOS" == "windows" ]]; then
+            cp claw.exe "../tauri/binaries/$BINARY_NAME"
+          else
+            cp claw "../tauri/binaries/$BINARY_NAME"
+            chmod +x "../tauri/binaries/$BINARY_NAME"
+          fi
+
+          echo "✅ Claw built: tauri/binaries/$BINARY_NAME"
 
       - name: Build and publish with Tauri
         uses: tauri-apps/tauri-action@v0.5.20
