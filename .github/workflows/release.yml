@@ -23,6 +23,8 @@ concurrency:
 jobs:
   create-release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       release-id: ${{ steps.create-release.outputs.result }}
       version: ${{ steps.version.outputs.version }}
@@ -209,6 +211,8 @@ jobs:
   update-release-notes:
     needs: [create-release, build-tauri]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: always() && needs.create-release.result == 'success'
 
     steps:
