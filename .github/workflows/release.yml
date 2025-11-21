@@ -122,11 +122,11 @@ jobs:
           workspaces: "./tauri -> target"
           key: ${{ matrix.platform }}-${{ matrix.rust-target }}
 
-      - name: Setup Go (for Claw service)
+      - name: Setup Go (for Graper service)
         uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache-dependency-path: claw/go.sum
+          cache-dependency-path: graper/go.sum
 
       - name: Install dependencies (Ubuntu only)
         if: matrix.platform == 'ubuntu-latest'
@@ -137,9 +137,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build Claw service
+      - name: Build Graper service
         shell: bash
-        working-directory: claw
+        working-directory: graper
         env:
           GOPROXY: https://goproxy.cn,direct
           GOTOOLCHAIN: local
@@ -148,32 +148,32 @@ jobs:
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
             if [[ "${{ matrix.rust-target }}" == "aarch64-apple-darwin" ]]; then
               GOARCH=arm64
-              BINARY_NAME="claw-aarch64-apple-darwin"
+              BINARY_NAME="coinote-graper-aarch64-apple-darwin"
             else
               GOARCH=amd64
-              BINARY_NAME="claw-x86_64-apple-darwin"
+              BINARY_NAME="coinote-graper-x86_64-apple-darwin"
             fi
             GOOS=darwin
           elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
             GOOS=windows
             GOARCH=amd64
-            BINARY_NAME="claw-x86_64-pc-windows-msvc.exe"
+            BINARY_NAME="coinote-graper-x86_64-pc-windows-msvc.exe"
           else
             GOOS=linux
             GOARCH=amd64
-            BINARY_NAME="claw-x86_64-unknown-linux-gnu"
+            BINARY_NAME="coinote-graper-x86_64-unknown-linux-gnu"
           fi
 
-          echo "Building Claw for $GOOS/$GOARCH -> $BINARY_NAME"
+          echo "Building Graper for $GOOS/$GOARCH -> $BINARY_NAME"
 
           # Set output filename based on platform
           if [[ "$GOOS" == "windows" ]]; then
-            OUTPUT_NAME="claw.exe"
+            OUTPUT_NAME="coinote-graper.exe"
           else
-            OUTPUT_NAME="claw"
+            OUTPUT_NAME="coinote-graper"
           fi
 
-          # Build Claw
+          # Build Graper
           CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
             -trimpath \
             -ldflags "-s -w -buildid=" \
@@ -195,7 +195,7 @@ jobs:
             chmod +x "../tauri/binaries/$BINARY_NAME"
           fi
 
-          echo "✅ Claw built: tauri/binaries/$BINARY_NAME"
+          echo "✅ Graper built: tauri/binaries/$BINARY_NAME"
 
       - name: Build and publish with Tauri
         uses: tauri-apps/tauri-action@v0.5.25
