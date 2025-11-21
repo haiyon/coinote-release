@@ -166,19 +166,32 @@ jobs:
 
           echo "Building Claw for $GOOS/$GOARCH -> $BINARY_NAME"
 
+          # Set output filename based on platform
+          if [[ "$GOOS" == "windows" ]]; then
+            OUTPUT_NAME="claw.exe"
+          else
+            OUTPUT_NAME="claw"
+          fi
+
           # Build Claw
           CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
             -trimpath \
             -ldflags "-s -w -buildid=" \
-            -o "claw" \
+            -o "$OUTPUT_NAME" \
             ./cmd/server
+
+          # Verify build was successful
+          if [[ ! -f "$OUTPUT_NAME" ]]; then
+            echo "❌ Build failed: $OUTPUT_NAME not found"
+            exit 1
+          fi
 
           # Create binaries directory and copy with correct naming
           mkdir -p ../tauri/binaries
-          if [[ "$GOOS" == "windows" ]]; then
-            cp claw.exe "../tauri/binaries/$BINARY_NAME"
-          else
-            cp claw "../tauri/binaries/$BINARY_NAME"
+          cp "$OUTPUT_NAME" "../tauri/binaries/$BINARY_NAME"
+
+          # Make executable on Unix systems
+          if [[ "$GOOS" != "windows" ]]; then
             chmod +x "../tauri/binaries/$BINARY_NAME"
           fi
 
