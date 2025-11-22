@@ -122,14 +122,16 @@ jobs:
         shell: bash
         working-directory: graper
         run: |
+          set -e
+
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
             [[ "${{ matrix.rust-target }}" == "aarch64-apple-darwin" ]] && GOARCH=arm64 || GOARCH=amd64
             GOOS=darwin
             BINARY_NAME="coinote-graper-${{ matrix.rust-target }}"
             OUTPUT_NAME="coinote-graper"
           elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
-            GOOS=windows
-            GOARCH=amd64
+            export GOOS=windows
+            export GOARCH=amd64
             BINARY_NAME="coinote-graper-x86_64-pc-windows-msvc.exe"
             OUTPUT_NAME="coinote-graper.exe"
           else
@@ -139,12 +141,21 @@ jobs:
             OUTPUT_NAME="coinote-graper"
           fi
 
-          CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
-            -trimpath -ldflags "-s -w" -o "$OUTPUT_NAME" ./cmd/server
+          echo "Building: GOOS=$GOOS GOARCH=$GOARCH OUTPUT=$OUTPUT_NAME"
+
+          go build -trimpath -ldflags "-s -w" -o "$OUTPUT_NAME" ./cmd/server || {
+            echo "Go build failed"
+            exit 1
+          }
+
+          if [[ ! -f "$OUTPUT_NAME" ]]; then
+            echo "Build output not found: $OUTPUT_NAME"
+            exit 1
+          fi
 
           mkdir -p ../tauri/binaries
           cp "$OUTPUT_NAME" "../tauri/binaries/$BINARY_NAME"
-          [[ "$GOOS" != "windows" ]] && chmod +x "../tauri/binaries/$BINARY_NAME"
+          [[ "$GOOS" != "windows" ]] && chmod +x "../tauri/binaries/$BINARY_NAME" || true
 
       - uses: tauri-apps/tauri-action@v0.5.25
         env:
