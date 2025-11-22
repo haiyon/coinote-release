@@ -6,16 +6,15 @@ on:
   workflow_dispatch:
     inputs:
       sha:
-        description: "Commit SHA to build from the source repository"
+        description: "Commit SHA to build"
         required: true
         type: string
       draft:
-        description: "Create as draft release"
+        description: "Create as draft"
         required: false
         default: true
         type: boolean
 
-# Ensure only one release workflow runs at a time
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -29,46 +28,35 @@ jobs:
       release-id: ${{ steps.create-release.outputs.result }}
       version: ${{ steps.version.outputs.version }}
     steps:
-      - name: Checkout source repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: haiyon/coinote
           token: ${{ secrets.GH_TOKEN_FOR_CHECKOUT }}
           ref: ${{ github.event.inputs.sha || github.event.client_payload.sha }}
 
-      - name: Extract version from package.json
+      - name: Extract version
         id: version
         run: |
           VERSION=$(node -p "require('./package.json').version")
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "📦 Building version: $VERSION"
 
-      - name: Create GitHub Release
+      - name: Create release
         id: create-release
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const version = '${{ steps.version.outputs.version }}'
-            const isDraft = ${{ github.event.inputs.draft || 'true' }}
-
-            try {
-              const { data: release } = await github.rest.repos.createRelease({
-                owner: 'haiyon',
-                repo: 'coinote-release',
-                tag_name: `v${version}`,
-                name: `Coinote v${version}`,
-                body: `Download the installer for your platform below.\n\nFor release notes and installation instructions, visit [coinote.app/releases](https://coinote.app/releases).`,
-                draft: isDraft,
-                prerelease: false,
-                target_commitish: 'main'
-              })
-
-              console.log(`✅ Release created: ${release.html_url}`)
-              return release.id
-            } catch (error) {
-              core.setFailed(`Failed to create release: ${error.message}`)
-            }
+            const { data: release } = await github.rest.repos.createRelease({
+              owner: 'haiyon',
+              repo: 'coinote-release',
+              tag_name: `v${{ steps.version.outputs.version }}`,
+              name: `Coinote v${{ steps.version.outputs.version }}`,
+              body: 'Download the installer for your platform below.\n\nFor release notes, visit [coinote.app/releases](https://coinote.app/releases).',
+              draft: ${{ github.event.inputs.draft || 'true' }},
+              prerelease: false,
+              target_commitish: 'main'
+            })
+            return release.id
 
   build-tauri:
     needs: create-release
@@ -95,158 +83,117 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-      - name: Checkout source repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           repository: haiyon/coinote
           token: ${{ secrets.GH_TOKEN_FOR_CHECKOUT }}
           ref: ${{ github.event.inputs.sha || github.event.client_payload.sha }}
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: "npm"
+          cache: npm
 
-      - name: Setup Bun (for scripts)
-        uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@v2
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-target }}
 
-      - name: Setup Rust cache
-        uses: swatinem/rust-cache@v2
+      - uses: swatinem/rust-cache@v2
         with:
           workspaces: "./tauri -> target"
           key: ${{ matrix.platform }}-${{ matrix.rust-target }}
 
-      - name: Setup Go (for Graper service)
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
           cache-dependency-path: graper/go.sum
 
-      - name: Install dependencies (Ubuntu only)
+      - name: Install system dependencies
         if: matrix.platform == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Install frontend dependencies
-        run: npm ci
+      - run: npm ci
 
-      - name: Build Graper service
+      - name: Build Graper
         shell: bash
         working-directory: graper
-        env:
-          GOPROXY: https://goproxy.cn,direct
-          GOTOOLCHAIN: local
         run: |
-          # Determine target architecture
           if [[ "${{ matrix.platform }}" == "macos-latest" ]]; then
-            if [[ "${{ matrix.rust-target }}" == "aarch64-apple-darwin" ]]; then
-              GOARCH=arm64
-              BINARY_NAME="coinote-graper-aarch64-apple-darwin"
-            else
-              GOARCH=amd64
-              BINARY_NAME="coinote-graper-x86_64-apple-darwin"
-            fi
+            [[ "${{ matrix.rust-target }}" == "aarch64-apple-darwin" ]] && GOARCH=arm64 || GOARCH=amd64
             GOOS=darwin
+            BINARY_NAME="coinote-graper-${{ matrix.rust-target }}"
+            OUTPUT_NAME="coinote-graper"
           elif [[ "${{ matrix.platform }}" == "windows-latest" ]]; then
             GOOS=windows
             GOARCH=amd64
             BINARY_NAME="coinote-graper-x86_64-pc-windows-msvc.exe"
+            OUTPUT_NAME="coinote-graper.exe"
           else
             GOOS=linux
             GOARCH=amd64
             BINARY_NAME="coinote-graper-x86_64-unknown-linux-gnu"
-          fi
-
-          echo "Building Graper for $GOOS/$GOARCH -> $BINARY_NAME"
-
-          # Set output filename based on platform
-          if [[ "$GOOS" == "windows" ]]; then
-            OUTPUT_NAME="coinote-graper.exe"
-          else
             OUTPUT_NAME="coinote-graper"
           fi
 
-          # Build Graper
           CGO_ENABLED=0 GOOS=$GOOS GOARCH=$GOARCH go build \
-            -trimpath \
-            -ldflags "-s -w -buildid=" \
-            -o "$OUTPUT_NAME" \
-            ./cmd/server
+            -trimpath -ldflags "-s -w" -o "$OUTPUT_NAME" ./cmd/server
 
-          # Verify build was successful
-          if [[ ! -f "$OUTPUT_NAME" ]]; then
-            echo "❌ Build failed: $OUTPUT_NAME not found"
-            exit 1
-          fi
-
-          # Create binaries directory and copy with correct naming
           mkdir -p ../tauri/binaries
           cp "$OUTPUT_NAME" "../tauri/binaries/$BINARY_NAME"
+          [[ "$GOOS" != "windows" ]] && chmod +x "../tauri/binaries/$BINARY_NAME"
 
-          # Make executable on Unix systems
-          if [[ "$GOOS" != "windows" ]]; then
-            chmod +x "../tauri/binaries/$BINARY_NAME"
-          fi
-
-          echo "✅ Graper built: tauri/binaries/$BINARY_NAME"
-
-      - name: Build and publish with Tauri
-        uses: tauri-apps/tauri-action@v0.5.25
+      - uses: tauri-apps/tauri-action@v0.5.25
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Uncomment and configure these for macOS code signing
-          # APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          # APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          # APPLE_ID: ${{ secrets.APPLE_ID }}
-          # APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          # APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          # Uncomment for Sentry integration
-          # SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          # SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          # SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           IS_INTEL_MAC: ${{ contains(matrix.args, 'x86_64') }}
           CI: true
-          NODE_OPTIONS: "--max_old_space_size=4096"
         with:
           projectPath: ./
           releaseId: ${{ needs.create-release.outputs.release-id }}
           args: ${{ matrix.args }}
+          includeUpdaterJson: true
+          updaterJsonPreferNsis: false
 
-  update-release-notes:
+  finalize-release:
     needs: [create-release, build-tauri]
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    if: always() && needs.create-release.result == 'success'
+    if: needs.build-tauri.result == 'success'
 
     steps:
-      - name: Update release with build status
-        uses: actions/github-script@v7
+      - uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const releaseId = ${{ needs.create-release.outputs.release-id }}
-            const version = '${{ needs.create-release.outputs.version }}'
-            const buildSuccess = '${{ needs.build-tauri.result }}' === 'success'
+            const shouldPublish = '${{ github.event.inputs.draft }}' === 'false'
 
-            let body = buildSuccess
-              ? `Download the installer for your platform below.\n\nFor release notes and installation instructions, visit [coinote.app/releases](https://coinote.app/releases).`
-              : `⚠️ Some builds failed. Please check the workflow logs.\n\nFor more information, visit [coinote.app/releases](https://coinote.app/releases).`
-
-            await github.rest.repos.updateRelease({
+            const { data: assets } = await github.rest.repos.listReleaseAssets({
               owner: 'haiyon',
               repo: 'coinote-release',
-              release_id: releaseId,
-              body: body
+              release_id: releaseId
             })
 
-            console.log('✅ Release notes updated')
+            const hasUpdaterJson = assets.some(a => a.name === 'latest.json')
+            if (!hasUpdaterJson) {
+              core.warning('latest.json not found - updates may not work')
+            }
+
+            if (shouldPublish) {
+              await github.rest.repos.updateRelease({
+                owner: 'haiyon',
+                repo: 'coinote-release',
+                release_id: releaseId,
+                draft: false
+              })
+              core.notice('Release published: https://github.com/haiyon/coinote-release/releases')
+            } else {
+              core.notice('Draft release ready for review: https://github.com/haiyon/coinote-release/releases')
+            }
