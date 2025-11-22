@@ -178,6 +178,7 @@ jobs:
           projectPath: ./
           releaseId: ${{ needs.create-release.outputs.release-id }}
           args: ${{ matrix.args }}
+          releaseDraft: true
           includeUpdaterJson: true
           updaterJsonPreferNsis: false
 
