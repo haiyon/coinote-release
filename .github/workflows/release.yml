@@ -51,7 +51,7 @@ jobs:
               repo: 'coinote-release',
               tag_name: `v${{ steps.version.outputs.version }}`,
               name: `Coinote v${{ steps.version.outputs.version }}`,
-              body: 'Download the installer for your platform below.\n\nFor release notes, visit [coinote.app/releases](https://coinote.app/releases).',
+              body: '**Note**: Unsigned app on Windows\n\n#### Signature Fix:\n\n- **Windows**: Right-click the app > Properties > Check "Unblock" box > Apply\n\nFor release notes, visit [coinote.app/releases](https://coinote.app/releases).',
               draft: ${{ github.event.inputs.draft || 'true' }},
               prerelease: false,
               target_commitish: 'main'
